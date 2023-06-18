@@ -25,7 +25,7 @@
 (dotimes (i 5)
   (insert-image (svg-lib-tag "TODO" nil
                              :font-weight (* (+ i 2) 100))))
-
+     
 
 (dotimes (i 10)
   (insert-image (svg-lib-tag "TODO" nil :padding 1 :stroke (/ i 4.0))))
@@ -60,3 +60,10 @@
 
 (insert-image (svg-lib-icon "gnuemacs" nil :collection "simple"
                             :stroke 0 :scale 1 :padding 0))
+  
+
+(insert-image (svg-lib-date nil nil :font-family "Roboto" :radius 5
+                                    :foreground "#673AB7"))
+ 
+ 
+
