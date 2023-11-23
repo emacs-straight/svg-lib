@@ -4,7 +4,7 @@
 
 ;; Maintainer: Nicolas P. Rougier <Nicolas.Rougier@inria.fr>
 ;; URL: https://github.com/rougier/svg-lib
-;; Version: 0.2.7
+;; Version: 0.2.8
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: svg, icons, tags, convenience
 
@@ -66,6 +66,10 @@
 ;; are monochrome and that their size is consistent.
 
 ;;; NEWS:
+
+;; Version 0.2.8
+;; - No background for icon when background color is nil
+;; - Refactored date icons
 
 ;; Version 0.2.7
 ;; - Added a dynamic date icon
@@ -211,12 +215,11 @@ to the default face)."
 (defun svg-lib-convert-color (color-name)
   "Convert Emacs COLOR-NAME to #rrggbb form.
 If COLOR-NAME is unknown to Emacs, then return COLOR-NAME as-is."
-  
-  (let ((rgb-color (color-name-to-rgb color-name)))
-    (if rgb-color
-        (apply #'color-rgb-to-hex (append rgb-color '(2)))
-      color-name)))
-
+  (when color-name
+    (let ((rgb-color (color-name-to-rgb color-name)))
+      (if rgb-color
+          (apply #'color-rgb-to-hex (append rgb-color '(2)))
+	color-name))))
 
 ;; SVG Library style build from partial specification
 (defun svg-lib-style (&optional base &rest args)
@@ -528,11 +531,12 @@ given STYLE and style elements ARGS."
     (when (>= stroke 0.25)
       (svg-rectangle svg box-x box-y box-width box-height
                      :fill foreground :rx radius))
-    (svg-rectangle svg (+ box-x (/ stroke 2.0))
-                       (+ box-y (/ stroke 2.0))
-                       (- box-width stroke)
-                       (- box-height stroke)
-                       :fill background :rx (- radius (/ stroke 2.0)))
+    (when background
+      (svg-rectangle svg (+ box-x (/ stroke 2.0))
+                     (+ box-y (/ stroke 2.0))
+                     (- box-width stroke)
+                     (- box-height stroke)
+                     :fill background :rx (- radius (/ stroke 2.0))))
     
     (dolist (item (xml-get-children (car root) 'path))
       (let* ((attrs (xml-node-attributes item))
@@ -633,18 +637,41 @@ and style elements ARGS."
     (svg-lib--image svg :ascent svg-ascent)))
 
 
+
 (defun svg-lib-date (&optional date style &rest args)
   "Create a two lines date icon showing given DATE, using given
 STYLE and style elements ARGS."
+
+  (let* ((date (or date (current-time)))
+         (month (upcase (format-time-string "%b" date)))
+         (day (format-time-string "%d" date)))
+    (apply 'svg-lib-box month day style args)))
+
+(defun svg-lib-week-date (&optional date style &rest args)
+  "Create a two lines date icon showing given DATE, using given
+STYLE and style elements ARGS."
+
+  (let* ((date (or date (current-time)))
+         (week (format-time-string "%W" date)))
+    (apply 'svg-lib-box "WEEK" week style args)))
+
+(defun svg-lib-day-date (&optional date style &rest args)
+  "Create a two lines date icon showing given DATE, using given
+STYLE and style elements ARGS."
+
+  (let* ((weekday (upcase (format-time-string "%a" date)))
+         (day (format-time-string "%d" date)))
+    (apply 'svg-lib-box weekday day style args)))
+
+        
+(defun svg-lib-box (top bottom &optional style &rest args)
+  "Create a two lines icon showing given TOP and BOTTOM text, using
+given STYLE and style elements ARGS."
 
   (let* ((default svg-lib-style-default)
          (style (if style (apply #'svg-lib-style nil style) default))
          (style (if args  (apply #'svg-lib-style style args) style))
 
-         (date (or date (current-time)))
-         (month (upcase (format-time-string "%b" date)))
-         (day (format-time-string "%d" date))
-            
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (alignment   (plist-get style :alignment))
@@ -693,7 +720,7 @@ STYLE and style elements ARGS."
                        (- tag-width stroke)
                        (- (/ tag-height 2) stroke)
                        :fill background :rx 0)
-    (svg-text svg month
+    (svg-text svg top
               :font-family font-family
               :font-weight "bold"
               :font-size (* font-size 0.9)
@@ -701,7 +728,7 @@ STYLE and style elements ARGS."
               :text-anchor "middle"
               :x (/ svg-width 2)
               :y "+0.95em")
-    (svg-text svg day
+    (svg-text svg bottom
               :font-family font-family
               :font-weight "bold"
               :font-size (* font-size 1.7)
