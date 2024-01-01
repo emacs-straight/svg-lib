@@ -287,34 +287,82 @@ If COLOR-NAME is unknown to Emacs, then return COLOR-NAME as-is."
                      (plist-get style :font-weight))))
     style))
 
+(defun svg-lib-style-from-face (face &rest args)
+  "Return a style from FACE and style element ARGS"
+
+  (let* ((font-family (face-attribute face :family nil 'default))
+         (font-weight (face-attribute face :weight nil 'default))
+         (font-size   (face-attribute face :height nil 'default))
+         (font-size   (round (* font-size 0.085)))
+         (foreground  (face-attribute face :foreground nil 'default))
+         (background  (face-attribute face :background nil 'default))
+         (stroke      (or (plist-get (face-attribute face :box) ':line-width) nil))
+         (style       `(:background ,background
+                        :foreground ,foreground
+                        ,@(when stroke `(:stroke stroke))
+                        :font-family ,font-family
+                        :font-size ,font-size
+                        :font-weight ,font-weight))
+         (base svg-lib-style-default)
+         (keys (cl-loop for (key _value) on base by 'cddr collect key)))
+    (dolist (key keys)
+      (cond ((plist-member args key)
+             (plist-put style key (plist-get args key)))
+            ((not (plist-member style key))
+             (plist-put style key (plist-get base key)))))
+    (svg-lib-style style)))
+
+
+(defun svg-lib-tag (label &optional face-or-style &rest args)
+  "Create an image displaying LABEL in a rounded box using given FACE-OR-STYLE
+and additional style elements ARGS."
+
+  (save-match-data
+    (let* ((style (cond ((facep face-or-style)
+                         (apply #'svg-lib-style-from-face face-or-style args))
+                        (face-or-style
+                         (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
+           (label-regex "\\[\\([a-zA-Z0-9]+:\\)?\\([a-zA-Z0-9 _-]+\\)\\] *\\(.+\\)?"))
+      (if (string-match label-regex label)
+          (let* ((collection (match-string 1 label))
+                 (collection (if (stringp collection)
+                                 (substring collection 0 -1)
+                               (plist-get svg-lib-style-default ':collection)))
+                 (icon       (match-string 2 label))
+                 (label      (match-string 3 label)))
+            (if (and (stringp label) (> (length label) 0))
+                (svg-lib-icon+tag icon label style :collection collection)
+              (svg-lib-icon icon style :collection collection)))
+        (svg-lib-text-tag label style)))))
+
 
 ;; Create an image displaying LABEL in a rounded box.
-(defun svg-lib-tag (label &optional style &rest args)
-  "Create an image displaying LABEL in a rounded box using given STYLE
-and style elements ARGS."
-
+(defun svg-lib-text-tag (label &optional face-or-style &rest args)
+  "Create an image displaying LABEL in a rounded box using given FACE-OR-STYLE
+and additional style elements ARGS."
+  
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
-
          (crop-left   (plist-get style :crop-left))
          (crop-right  (plist-get style :crop-right))
-
          (alignment   (plist-get style :alignment))
          (stroke      (plist-get style :stroke))
-         ;; (width       (plist-get style :width))
          (height      (plist-get style :height))
          (radius      (plist-get style :radius))
-         ;; (scale       (plist-get style :scale))
          (margin      (plist-get style :margin))
          (padding     (plist-get style :padding))
          (font-size   (plist-get style :font-size))
          (font-family (plist-get style :font-family))
          (font-weight (plist-get style :font-weight))
-
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
          (txt-char-height (if line-spacing
@@ -324,18 +372,14 @@ and style elements ARGS."
          (font-size       (aref font-info 2)) ;; redefine font-size
          (ascent          (aref font-info 8))
          (tag-char-width  (aref font-info 11))
-         ;; (tag-char-height (aref font-info 3))
          (tag-width       (* (+ (length label) padding) txt-char-width))
          (tag-height      (* txt-char-height height))
-
          (svg-width       (+ tag-width (* margin txt-char-width)))
          (svg-height      tag-height)
          (svg-ascent      (plist-get style :ascent))
-         
          (tag-x  (* (- svg-width tag-width)  alignment))
          (text-x (+ tag-x (/ (- tag-width (* (length label) tag-char-width)) 2)))
          (text-y ascent)
-
          (tag-x      (if crop-left  (- tag-x     txt-char-width) tag-x))
          (tag-width  (if crop-left  (+ tag-width txt-char-width) tag-width))
          (text-x     (if crop-left  (- text-x (/ stroke 2)) text-x))
@@ -356,58 +400,40 @@ and style elements ARGS."
     (svg-lib--image svg :ascent svg-ascent)))
 
 
-;; Create a progress pie
-(defun svg-lib-progress-pie (value &optional style &rest args)
-  "Create a progress pie image with value VALUE using given STYLE
-and style elements ARGS."
+(defun svg-lib-progress-pie (value &optional face-or-style &rest args)
+  "Create a progress pie image with value VALUE using given FACE-OR-STYLE
+and additional style elements ARGS."
 
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (stroke      (plist-get style :stroke))
-         ;; (width       (plist-get style :width))
          (height      (plist-get style :height))
-         ;;  (scale       (plist-get style :scale))
          (margin      (plist-get style :margin))
          (padding     (plist-get style :padding))
-         ;; (font-size   (plist-get style :font-size))
-         ;; (font-family (plist-get style :font-family))
-         ;; (font-weight (plist-get style :font-weight))
-         
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
-         
-         ;; (font-info       (font-info (format "%s-%d" font-family font-size)))
-         ;; (ascent          (aref font-info 8))
-         ;; (tag-char-width  (aref font-info 11))
-         ;; (tag-char-height (aref font-info 3))
-
          (tag-width       (* 2 txt-char-width))
          (tag-height      (* txt-char-height height))
-
          (svg-width       (+ tag-width (* margin txt-char-width)))
          (svg-height      tag-height)
          (svg-ascent      (plist-get style :ascent))
-         
-         ;; (tag-x           (/ (- svg-width tag-width) 2))
-
          (cx              (/ svg-width  2))
          (cy              (/ svg-height 2))
          (radius          (- (/ tag-height 2) (/ stroke 2)))
-
          (iradius         (- radius stroke (/ padding 2)))
-
          (angle0          (- (/ float-pi 2)))
          (x0              (+ cx (* iradius (cos angle0))))
          (y0              (+ cy (* iradius (sin angle0))))
-
          (angle1          (+ angle0 (* value 2 float-pi)))
          (x1              (+ cx (* iradius (cos angle1))))
          (y1              (+ cy (* iradius (sin angle1))))
-
          (large-arc       (>= (- angle1 angle0) float-pi))
          (svg (svg-create svg-width svg-height)))
 
@@ -428,42 +454,32 @@ and style elements ARGS."
 
 
 ;; Create a progress bar
-(defun svg-lib-progress-bar (value &optional style &rest args)
-  "Create a progress bar image with value VALUE using given STYLE
-and style elements ARGS."
+(defun svg-lib-progress-bar (value &optional face-or-style &rest args)
+  "Create a progress bar image with value VALUE using given FACE-OR-STYLE
+and additional style elements ARGS."
 
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (stroke      (plist-get style :stroke))
          (width       (plist-get style :width))
          (height      (plist-get style :height))
          (radius      (plist-get style :radius))
-         ;; (scale       (plist-get style :scale))
          (margin      (plist-get style :margin))
          (padding     (plist-get style :padding))
-         ;; (font-size   (plist-get style :font-size))
-         ;; (font-family (plist-get style :font-family))
-         ;; (font-weight (plist-get style :font-weight))
-
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
-         
-         ;; (font-info       (font-info (format "%s-%d" font-family font-size)))
-         ;; (ascent          (aref font-info 8))
-         ;; (tag-char-width  (aref font-info 11))
-         ;; (tag-char-height (aref font-info 3))
-
          (tag-width       (* width txt-char-width))
          (tag-height      (* txt-char-height height))
-
          (svg-width       (+ tag-width (* margin txt-char-width)))
          (svg-height      tag-height)
-         (svg-ascent      (plist-get style :ascent))
-         
+         (svg-ascent      (plist-get style :ascent))         
          (tag-x (/ (- svg-width tag-width) 2))
          (svg (svg-create svg-width svg-height)))
 
@@ -482,8 +498,6 @@ and style elements ARGS."
                        :fill foreground :rx (- radius (/ stroke 2.0)))
     
     (svg-lib--image svg :ascent svg-ascent)))
-
-
 
 ;; Create a rounded box icon
 (defun svg-lib--icon-get-data (collection name &optional force-reload)
@@ -510,17 +524,19 @@ Cached version is returned if it exists unless FORCE-RELOAD is t."
         (xml-parse-region (point-min) (point-max))))))
 
 
-(defun svg-lib-icon (icon &optional style &rest args)
+(defun svg-lib-icon (icon &optional face-or-style &rest args)
   "Create a SVG image displaying icon NAME from COLLECTION using
-given STYLE and style elements ARGS."
+given FACE-OR-STYLE and additional style elements ARGS."
 
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (collection  (plist-get style :collection))
          (root (svg-lib--icon-get-data collection icon))
-         
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (stroke      (plist-get style :stroke))
@@ -529,11 +545,7 @@ given STYLE and style elements ARGS."
          (scale       (plist-get style :scale))
          (margin      (plist-get style :margin))
          (padding     (plist-get style :padding))
-         ;; (font-size   (plist-get style :font-size))
-         ;; (font-family (plist-get style :font-family))
-         ;; (font-weight (plist-get style :font-weight))
-         (width      (+ 2 padding))
-         
+         (width      (+ 2 padding))         
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
          (box-width       (* width txt-char-width))
@@ -543,8 +555,6 @@ given STYLE and style elements ARGS."
          (svg-ascent      (plist-get style :ascent))
          (box-x           (/ (- svg-width box-width) 2))
          (box-y           0)
-
-         ;; Read original viewbox
          (viewbox (cdr (assq 'viewBox (xml-node-attributes (car root)))))
          (viewbox (mapcar #'string-to-number (split-string viewbox)))
          (icon-x      (nth 0 viewbox))
@@ -585,21 +595,22 @@ given STYLE and style elements ARGS."
 
 
 ;; Create an image displaying LABEL in a rounded box.
-(defun svg-lib-icon+tag (icon label &optional style &rest args)
-  "Create an image displaying LABEL in a rounded box using given STYLE
-and style elements ARGS."
+(defun svg-lib-icon+tag (icon label &optional face-or-style &rest args)
+  "Create an image displaying LABEL in a rounded box using given FACE-OR-STYLE
+and additional style elements ARGS."
 
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (collection (plist-get style :collection))
-         (root (svg-lib--icon-get-data collection icon))
-         
+         (root (svg-lib--icon-get-data collection icon))         
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (stroke      (plist-get style :stroke))
-         ;; (width       (plist-get style :width))
          (height      (plist-get style :height))
          (radius      (plist-get style :radius))
          (scale       (plist-get style :scale))
@@ -608,31 +619,21 @@ and style elements ARGS."
          (font-size   (plist-get style :font-size))
          (font-family (plist-get style :font-family))
          (font-weight (plist-get style :font-weight))
-
          (label-length    (+ (length label) 2))
-                          
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
-         ;; (box-width       (* width txt-char-width))
-         ;; (box-height      (* height txt-char-height))
-
          (font-info       (font-info (format "%s-%d" font-family font-size)))
          (ascent          (aref font-info 8))
          (tag-char-width  (aref font-info 11))
-         ;; (tag-char-height (aref font-info 3))
          (tag-width       (* (+ label-length padding) txt-char-width))
          (tag-height      (* txt-char-height height))
-
          (svg-width       (+ tag-width (* margin txt-char-width)))
          (svg-height      tag-height)
          (svg-ascent      (plist-get style :ascent))
-         
          (tag-x (/ (- svg-width tag-width) 2))
          (text-x (+ tag-x (/ (- tag-width (* (length label) tag-char-width)) 2)))
          (text-x (+ text-x tag-char-width))
          (text-y ascent)
-
-         ;; ;; Read original viewbox
          (viewbox (cdr (assq 'viewBox (xml-node-attributes (car root)))))
          (viewbox (mapcar 'string-to-number (split-string viewbox)))
          (icon-x      (nth 0 viewbox))
@@ -671,41 +672,43 @@ and style elements ARGS."
     (svg-lib--image svg :ascent svg-ascent)))
 
 
-
-(defun svg-lib-date (&optional date style &rest args)
+(defun svg-lib-date (&optional date face-or-style &rest args)
   "Create a two lines date icon showing given DATE, using given
-STYLE and style elements ARGS."
+FACE-OR-STYLE and additional style elements ARGS."
 
   (let* ((date (or date (current-time)))
          (month (upcase (format-time-string "%b" date)))
          (day (format-time-string "%d" date)))
-    (apply 'svg-lib-box month day style args)))
+    (apply 'svg-lib-box month day face-or-style args)))
 
-(defun svg-lib-week-date (&optional date style &rest args)
+(defun svg-lib-week-date (&optional date face-or-style &rest args)
   "Create a two lines date icon showing given DATE, using given
-STYLE and style elements ARGS."
+FACE-OR-STYLE and additional style elements ARGS."
 
   (let* ((date (or date (current-time)))
          (week (format-time-string "%W" date)))
-    (apply 'svg-lib-box "WEEK" week style args)))
+    (apply 'svg-lib-box "WEEK" week face-or-style args)))
 
-(defun svg-lib-day-date (&optional date style &rest args)
+(defun svg-lib-day-date (&optional date face-or-style &rest args)
   "Create a two lines date icon showing given DATE, using given
-STYLE and style elements ARGS."
+FACE-OR-STYLE and additional style elements ARGS."
 
   (let* ((weekday (upcase (format-time-string "%a" date)))
          (day (format-time-string "%d" date)))
-    (apply 'svg-lib-box weekday day style args)))
+    (apply 'svg-lib-box weekday day face-or-style args)))
 
         
-(defun svg-lib-box (top bottom &optional style &rest args)
+(defun svg-lib-box (top bottom &optional face-or-style &rest args)
   "Create a two lines icon showing given TOP and BOTTOM text, using
 given STYLE and style elements ARGS."
 
   (let* ((default svg-lib-style-default)
-         (style (if style (apply #'svg-lib-style nil style) default))
-         (style (if args  (apply #'svg-lib-style style args) style))
-
+         (style (cond ((facep face-or-style)
+                       (apply #'svg-lib-style-from-face face-or-style args))
+                      (face-or-style
+                       (apply #'svg-lib-style face-or-style args))
+                      (t
+                       (apply #'svg-lib-style svg-lib-style-default args))))
          (foreground  (plist-get style :foreground))
          (background  (plist-get style :background))
          (stroke      (plist-get style :stroke))
@@ -713,21 +716,16 @@ given STYLE and style elements ARGS."
          (height      (or (plist-get args :height) 2))
          (radius      (plist-get style :radius))
          (margin      (plist-get style :margin))
-         
          (font-size   (plist-get style :font-size))
          (font-family (plist-get style :font-family))
-
          (txt-char-width  (window-font-width))
          (txt-char-height (window-font-height))
-         
          (tag-width       (* width txt-char-width))
-         
          (tag-height      (* height txt-char-height))
          (svg-width       (+ tag-width (* margin txt-char-width)))
          (svg-height      tag-height)
          (svg-ascent      (or (plist-get style :ascent) 'center))
          (tag-x           (/ (- svg-width tag-width) 2) )
-
          (svg (svg-create svg-width svg-height)))
     
     (when (>= stroke 0.25)
@@ -909,49 +907,14 @@ problem if the hook creates a frame."
     (mouse-set-point last-input-event)
     (svg-lib-button--set-state (svg-lib-button--at-point) 'press)))
 
-(defun svg-lib-button--make (label &optional face)
-  "Return a svg tag with given LABEL and FACE. LABEL can be composed
-as \"[collection:icon] label\" resulting in an icon+tag button."
-
-  (save-match-data
-    (let* ((face (or face 'default))
-           (label-regex "\\[\\([a-zA-Z0-9]+:\\)?\\([a-zA-Z0-9 _-]+\\)\\] *\\(.+\\)?"))
-      (if (string-match label-regex label)
-          (let* ((collection (match-string 1 label))
-                 (collection (if (stringp collection)
-                                 (substring collection 0 -1)
-                               (plist-get svg-lib-style-default ':collection)))
-                 (icon       (match-string 2 label))
-                 (label      (match-string 3 label)))
-            (if (and (stringp label) (> (length label) 0))
-                (svg-lib-icon+tag icon label nil
-                                  :collection collection
-                                  :stroke (or (plist-get (face-attribute face :box) ':line-width) 0)
-                                  :font-family (face-attribute face :family nil t)
-                                  :font-weight (face-attribute face :weight nil t)
-                                  :foreground (face-foreground face nil 'default)
-                                  :background (face-background face nil 'default))
-              (svg-lib-icon icon nil
-                                :collection collection
-                                :stroke (or (plist-get (face-attribute face :box) ':line-width) 0)
-                                :font-family (face-attribute face :family nil t)
-                                :font-weight (face-attribute face :weight nil t)
-                                :foreground (face-foreground face nil 'default)
-                                :background (face-background face nil 'default))))
-        (svg-lib-tag label nil
-                     :stroke (or (plist-get (face-attribute face :box) ':line-width) 0)
-                     :font-family (face-attribute face :family nil t)
-                     :font-weight (face-attribute face :weight nil t)
-                     :foreground (face-foreground face nil 'default)
-                     :background (face-background face nil 'default))))))
-
-
-(defun svg-lib-button (label &optional hook help active-face hover-face press-face)
+(defun svg-lib-button (label &optional hook help active hover press)
   "Make a button with given LABEL that will call HOOK when
-pressed. The HELP text is displatyed when mouse is hovering the
-button. ACTIVE-FACE, HOVER-FACE and PRESS-FACE correspond to the
-different states of the button. LABEL can be composed as
-\"[collection:icon] label\" resulting in an icon+tag button.
+pressed. The HELP text is displayed when mouse is hovering the
+button. ACTIVE, HOVER and PRESS correspond to the different
+states of the button and can be specified as a face-or-style or a
+cons of face-or-style and additional style elements. LABEL can be
+composed as \"[collection:icon] label\" resulting in an icon+tag
+button.
 
 For proper highlighting, `svg-lib-button-mode' needs to be
 activated before inserting a button into a buffer."
@@ -970,13 +933,37 @@ activated before inserting a button into a buffer."
   ;; unfontifies a region (see `org-unfontify-region'), it removes the
   ;; local keymap that is used. You thus need to activate the
   ;; svg-lib-button-mode to have this set for you.
-  
-  (let* ((active (svg-lib-button--make label
-                          (or active-face 'svg-lib-button-active-face)))
-         (hover (svg-lib-button--make label
-                          (or hover-face 'svg-lib-button-hover-face)))
-         (press (svg-lib-button--make label
-                          (or press-face 'svg-lib-button-press-face)))
+
+  (let* ((active (cond ((facep active)
+                        (svg-lib-tag label active))
+                       ((and (listp active) active)
+                        (apply #'svg-lib-tag label (car active) (cdr active)))
+                       (t
+                        (svg-lib-tag label 'default
+                                     :font-family (plist-get svg-lib-style-default ':font-family)
+                                     :font-weight 'regular))))
+         (hover (cond ((facep hover)
+                       (svg-lib-tag label hover))
+                      ((and (listp hover) hover)
+                       (apply #'svg-lib-tag label (car hover) (cdr hover)))
+                      (t
+                       (svg-lib-tag label 'default
+                                    :foreground (face-background 'default nil 'default)
+                                    :background (face-foreground 'font-lock-comment-face nil 'default)
+                                    :stroke 0
+                                    :font-family (plist-get svg-lib-style-default ':font-family)
+                                    :font-weight 'semibold))))
+         (press (cond ((facep press)
+                        (svg-lib-tag label press))
+                       ((and (listp press) press)
+                        (apply #'svg-lib-tag label (car press) (cdr press)))
+                       (t
+                        (svg-lib-tag label 'default
+                                     :foreground (face-background 'default)
+                                     :background (face-foreground 'default)
+                                     :stroke 0
+                                     :font-family (plist-get svg-lib-style-default ':font-family)
+                                     :font-weight 'semibold))))
          (buttons `((active . ,active)
                     (hover . ,hover)
                     (press . ,press)))
